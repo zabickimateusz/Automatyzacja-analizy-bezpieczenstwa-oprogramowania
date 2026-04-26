@@ -39,25 +39,25 @@ pipeline {
             }
         }
 
-        stage('5. Wdrożenie na VM 3 (Docker Remote)') {
+        stage('5. Wdrożenie na VM 3 (Docker Compose Remote)') {
             steps {
                 script {
                     def remoteIP = "192.168.0.203"
                     def remoteUser = "root"
+                    def sshArgs = "-o StrictHostKeyChecking=no"
                     
-                    echo "Budowanie obrazu kontenera na maszynie Jenkins..."
-                    sh "docker build -t bezpieczne-dvwa:latest ."
+                    echo "Przygotowanie folderu na VM 3..."
+                    sh "ssh ${sshArgs} ${remoteUser}@${remoteIP} 'mkdir -p /opt/dvwa'"
+                    
+                    echo "Kopiowanie plików źródłowych na VM 3..."
+                    sh "scp ${sshArgs} -r . ${remoteUser}@${remoteIP}:/opt/dvwa/"
 
-                    echo "Przesyłanie obrazu na VM 3..."
-                    // Dodano -o StrictHostKeyChecking=no dla pelnej automatyzacji
-                    sh "docker save bezpieczne-dvwa:latest | ssh -o StrictHostKeyChecking=no ${remoteUser}@${remoteIP} 'docker load'"
-
-                    echo "Uruchamianie aplikacji na VM 3..."
+                    echo "Uruchamianie aplikacji i bazy danych przez Docker Compose..."
                     sh """
-                        ssh -o StrictHostKeyChecking=no ${remoteUser}@${remoteIP} "
-                            docker stop dvwa-app || true && 
-                            docker rm dvwa-app || true && 
-                            docker run -d --name dvwa-app -p 80:80 bezpieczne-dvwa:latest
+                        ssh ${sshArgs} ${remoteUser}@${remoteIP} "
+                            cd /opt/dvwa && 
+                            docker-compose down || true && 
+                            docker-compose up -d --build
                         "
                     """
                 }
@@ -67,7 +67,7 @@ pipeline {
 
     post {
         success {
-            echo 'System DevSecOps: Proces zakonczony sukcesem. Aplikacja wdrożona.'
+            echo 'System DevSecOps: Proces zakonczony sukcesem. Aplikacja wdrożona na VM 3.'
         }
         failure {
             echo 'System DevSecOps: Wykryto błędy lub luki bezpieczeństwa. Wstrzymano potok.'
