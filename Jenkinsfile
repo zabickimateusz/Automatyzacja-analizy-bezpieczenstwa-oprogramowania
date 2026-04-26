@@ -11,8 +11,7 @@ pipeline {
 
         stage('2. Analiza SCA (Dependency-Check)') {
             steps {
-                echo 'Uruchamianie skanera bibliotek (SCA) z kluczem NVD API...'
-                // Pobieranie klucza API z Credentiali Jenkinsa (ID: nvd-api-key)
+                echo 'Uruchamianie skanera bibliotek (SCA)...'
                 withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_KEY')]) {
                     dependencyCheck additionalArguments: "--format HTML --format XML --nvdApiKey ${NVD_KEY}", odcInstallation: 'dependency-check'
                 }
@@ -21,9 +20,8 @@ pipeline {
 
         stage('3. Analiza SAST (SonarQube)') {
             steps {
-                echo 'Przesyłanie kodu do analizy statycznej w SonarQube...'
+                echo 'Przesyłanie kodu do analizy w SonarQube...'
                 script {
-                    // Wykorzystanie zainstalowanego narzędzia sonar-scanner
                     def scannerHome = tool 'sonar-scanner'
                     withSonarQubeEnv('SonarQube') {
                         sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=dvwa-security-test -Dsonar.projectName='DVWA Security Test' -Dsonar.sources=."
@@ -34,9 +32,8 @@ pipeline {
 
         stage('4. Bramka Jakosci (Quality Gate)') {
             steps {
-                echo 'Oczekiwanie na wynik analizy bezpieczeństwa...'
+                echo 'Weryfikacja wyniku skanowania...'
                 timeout(time: 15, unit: 'MINUTES') {
-                    // Potok zostanie przerwany, jeśli Sonar wyśle status ERROR
                     waitForQualityGate abortPipeline: true
                 }
             }
@@ -45,21 +42,19 @@ pipeline {
         stage('5. Wdrożenie na VM 3 (Docker Remote)') {
             steps {
                 script {
-                    // --- KONFIGURACJA ---
-                    def remoteIP = "192.168.0.203" // <--- TUTAJ WPISZ IP TWOJEJ 3. MASZYNY
-                    def remoteUser = "root"        // Użytkownik na 3. maszynie
+                    def remoteIP = "192.168.0.203"
+                    def remoteUser = "root"
                     
                     echo "Budowanie obrazu kontenera na maszynie Jenkins..."
                     sh "docker build -t bezpieczne-dvwa:latest ."
 
-                    echo "Przesyłanie obrazu na maszynę docelową ${remoteIP}..."
-                    // Przesyłamy obraz "w locie" przez SSH i ładujemy go do Dockera na VM 3
-                    sh "docker save bezpieczne-dvwa:latest | ssh ${remoteUser}@${remoteIP} 'docker load'"
+                    echo "Przesyłanie obrazu na VM 3..."
+                    // Dodano -o StrictHostKeyChecking=no dla pelnej automatyzacji
+                    sh "docker save bezpieczne-dvwa:latest | ssh -o StrictHostKeyChecking=no ${remoteUser}@${remoteIP} 'docker load'"
 
-                    echo "Uruchamianie nowej wersji aplikacji na VM 3..."
-                    // Zatrzymujemy stary kontener i odpalamy nowy na porcie 80
+                    echo "Uruchamianie aplikacji na VM 3..."
                     sh """
-                        ssh ${remoteUser}@${remoteIP} "
+                        ssh -o StrictHostKeyChecking=no ${remoteUser}@${remoteIP} "
                             docker stop dvwa-app || true && 
                             docker rm dvwa-app || true && 
                             docker run -d --name dvwa-app -p 80:80 bezpieczne-dvwa:latest
@@ -72,10 +67,10 @@ pipeline {
 
     post {
         success {
-            echo 'Sukces! Aplikacja została przeskanowana i wdrożona na VM 3.'
+            echo 'System DevSecOps: Proces zakonczony sukcesem. Aplikacja wdrożona.'
         }
         failure {
-            echo 'Błąd! Potok został przerwany (prawdopodobnie przez błędy bezpieczeństwa).'
+            echo 'System DevSecOps: Wykryto błędy lub luki bezpieczeństwa. Wstrzymano potok.'
         }
     }
 }
